@@ -1,0 +1,703 @@
+<title>Ethers "SeamsBeGone"</title>
+<style>
+  :root {
+    --bg: #f4f4f3;
+    --text: #24282a;
+    --muted: #6b7176;
+    --line: #d6d9d3;
+    --accent: #2e8f5d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161819; --text: #e4e7e9; --muted: #969da3; --line: #2c3135; --accent: #5cc389; }
+  }
+  :root[data-theme="dark"] { --bg: #161819; --text: #e4e7e9; --muted: #969da3; --line: #2c3135; --accent: #5cc389; }
+  :root[data-theme="light"] { --bg: #f4f4f3; --text: #24282a; --muted: #6b7176; --line: #d6d9d3; --accent: #2e8f5d; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, Menlo, monospace; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; }
+
+  h1 { font: 600 14px ui-monospace, Consolas, Menlo, monospace; letter-spacing: 0.1em; margin: 0 0 20px; }
+  h1 span { color: var(--accent); }
+
+  .layout { display: grid; grid-template-columns: 300px 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+
+  .rail { display: flex; flex-direction: column; gap: 20px; }
+
+  #drop { border: 1px dashed var(--line); padding: 22px 14px; text-align: center; cursor: pointer; color: var(--muted); }
+  #drop:hover, #drop.over { border-color: var(--accent); color: var(--text); }
+  #drop strong { color: var(--text); font-weight: 600; }
+  #drop:focus-visible { outline: 1px solid var(--accent); }
+  #fileInput { display: none; }
+
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 3px 0; font-size: 13px; }
+  td:first-child { color: var(--muted); padding-right: 12px; }
+  td:last-child { text-align: right; font-family: ui-monospace, Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+  .ctl { margin-bottom: 12px; }
+  .ctl:last-child { margin-bottom: 0; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 2px; color: var(--muted); }
+  .ctl label .cur { font-family: ui-monospace, Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+  button { font: inherit; cursor: pointer; }
+  .btn { display: block; width: 100%; padding: 8px 12px; border: 1px solid var(--line); background: transparent; color: var(--text); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn:hover { border-color: var(--accent); }
+  .btn + .btn { margin-top: 6px; }
+  .btn:focus-visible { outline: 1px solid var(--accent); }
+
+  .tabs { display: flex; gap: 12px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+  .tabs button { border: 0; background: none; padding: 0; color: var(--muted); font-size: 13px; }
+  .tabs button.on { color: var(--accent); }
+  .tabs button:focus-visible { outline: 1px solid var(--accent); }
+  #gridToggleWrap { margin-left: auto; display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); }
+  #gridToggleWrap input { accent-color: var(--accent); margin: 0; }
+
+  #stage { border: 1px solid var(--line); min-height: 280px; max-height: 78vh; overflow: auto; }
+  #previewCanvas { display: block; max-width: 100%; }
+  #emptyState { color: var(--muted); padding: 100px 20px; text-align: center; }
+
+  #status { font: 12px ui-monospace, Consolas, Menlo, monospace; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  #status .busy { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <h1>ETHERS <span>"SEAMSBEGONE"</span></h1>
+
+  <div class="layout">
+    <div class="rail">
+
+      <div id="drop" tabindex="0" role="button" aria-label="Upload an image">
+        <strong id="dropTitle">Drop an image</strong><br>
+        <span id="dropSub">click to browse · Ctrl+V to paste</span>
+      </div>
+      <input type="file" id="fileInput" accept="image/*">
+
+      <table id="analysis" hidden>
+        <tr><td>Edge mismatch L↔R</td><td id="mH">–</td></tr>
+        <tr><td>Edge mismatch T↔B</td><td id="mV">–</td></tr>
+        <tr><td>Lighting drift</td><td id="mL">–</td></tr>
+        <tr><td>Tile found</td><td id="mT">–</td></tr>
+        <tr><td>Result seam</td><td id="mR">–</td></tr>
+      </table>
+
+      <div id="settings" hidden>
+        <div class="ctl">
+          <label for="minKeep">Minimum tile size <span class="cur" id="minKeepVal">60%</span></label>
+          <input type="range" id="minKeep" min="40" max="95" step="5" value="60">
+        </div>
+        <div class="ctl">
+          <label for="overlap">Seam search width <span class="cur" id="overlapVal">12%</span></label>
+          <input type="range" id="overlap" min="6" max="25" step="1" value="12">
+        </div>
+        <div class="ctl">
+          <label for="light">Even out lighting <span class="cur" id="lightVal">off</span></label>
+          <input type="range" id="light" min="0" max="100" step="5" value="0">
+        </div>
+      </div>
+
+      <div id="export" hidden>
+        <button class="btn primary" id="downloadBtn">Download PNG</button>
+        <button class="btn" id="resetBtn">Load a different image</button>
+      </div>
+
+    </div>
+
+    <div>
+      <div class="tabs" id="viewTabs">
+        <button type="button" data-v="result3" class="on">3×3</button>
+        <button type="button" data-v="result2">2×2</button>
+        <button type="button" data-v="result1">1×</button>
+        <button type="button" data-v="source">source cut</button>
+        <span id="gridToggleWrap"><input type="checkbox" id="gridToggle"><label for="gridToggle">tile lines</label></span>
+      </div>
+      <div id="stage">
+        <canvas id="previewCanvas" width="16" height="16" hidden></canvas>
+        <div id="emptyState">Load an image to get started.</div>
+      </div>
+      <div id="status"><span id="statusText">Waiting for an image.</span><span id="dims"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_DIM = 2048;
+  var SEARCH_DIM = 256;
+
+  var els = {};
+  ["drop", "dropTitle", "dropSub", "fileInput", "analysis", "settings", "export",
+   "minKeep", "minKeepVal", "overlap", "overlapVal", "light", "lightVal",
+   "viewTabs", "gridToggle", "previewCanvas", "emptyState", "statusText", "dims",
+   "downloadBtn", "resetBtn", "mH", "mV", "mL", "mT", "mR"
+  ].forEach(function (id) { els[id] = document.getElementById(id); });
+
+  var state = {
+    fileName: "texture",
+    orig: null,
+    origCanvas: null,
+    result: null,
+    tile: null,
+    view: "result3",
+    analysis: null,
+    processTimer: null
+  };
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function setStatus(text, busy) {
+    els.statusText.textContent = text;
+    els.statusText.className = busy ? "busy" : "";
+  }
+
+  // ---------- image loading ----------
+
+  function loadFile(file) {
+    if (!file || file.type.indexOf("image/") !== 0) {
+      setStatus("Not an image file — try PNG, JPG or WebP.", false);
+      return;
+    }
+    state.fileName = (file.name || "texture").replace(/\.[^.]+$/, "");
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () { URL.revokeObjectURL(url); ingestImage(img); };
+    img.onerror = function () { URL.revokeObjectURL(url); setStatus("Couldn't decode that image.", false); };
+    img.src = url;
+  }
+
+  function ingestImage(img) {
+    var w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) { setStatus("Image has no size.", false); return; }
+    if (w < 32 || h < 32) { setStatus("Image too small — needs at least 32×32.", false); return; }
+    var scale = Math.min(1, MAX_DIM / Math.max(w, h));
+    var sw = Math.max(32, Math.round(w * scale));
+    var sh = Math.max(32, Math.round(h * scale));
+
+    var c = document.createElement("canvas");
+    c.width = sw; c.height = sh;
+    var ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, sw, sh);
+
+    state.origCanvas = c;
+    state.orig = ctx.getImageData(0, 0, sw, sh);
+
+    els.dropTitle.textContent = state.fileName;
+    els.dropSub.textContent = "replace";
+    els.analysis.hidden = false;
+    els.settings.hidden = false;
+    els.export.hidden = false;
+    els.emptyState.hidden = true;
+    els.previewCanvas.hidden = false;
+    els.dims.textContent = sw + "×" + sh + (scale < 1 ? " (from " + w + "×" + h + ")" : "");
+
+    analyzeInput();
+    scheduleProcess(0);
+  }
+
+  // ---------- input analysis ----------
+
+  function edgeMismatch(data, w, h) {
+    var d = data.data, sumLR = 0, sumTB = 0, y, x, a, b;
+    for (y = 0; y < h; y++) {
+      a = (y * w) * 4; b = (y * w + w - 1) * 4;
+      sumLR += Math.abs(d[a] - d[b]) + Math.abs(d[a + 1] - d[b + 1]) + Math.abs(d[a + 2] - d[b + 2]);
+    }
+    for (x = 0; x < w; x++) {
+      a = x * 4; b = ((h - 1) * w + x) * 4;
+      sumTB += Math.abs(d[a] - d[b]) + Math.abs(d[a + 1] - d[b + 1]) + Math.abs(d[a + 2] - d[b + 2]);
+    }
+    return { lr: (sumLR / (h * 3 * 255)) * 100, tb: (sumTB / (w * 3 * 255)) * 100 };
+  }
+
+  function luminanceMap(data, w, h) {
+    var d = data.data, out = new Float32Array(w * h), i, n = w * h;
+    for (i = 0; i < n; i++) {
+      var j = i * 4;
+      out[i] = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+    }
+    return out;
+  }
+
+  function wrapBlur(src, w, h, radius) {
+    var tmp = new Float32Array(w * h);
+    var dst = new Float32Array(src);
+    var pass, x, y, i, acc, win = radius * 2 + 1;
+    for (pass = 0; pass < 3; pass++) {
+      for (y = 0; y < h; y++) {
+        var row = y * w;
+        acc = 0;
+        for (i = -radius; i <= radius; i++) acc += dst[row + ((i % w) + w) % w];
+        for (x = 0; x < w; x++) {
+          tmp[row + x] = acc / win;
+          acc += dst[row + ((x + radius + 1) % w + w) % w] - dst[row + ((x - radius) % w + w) % w];
+        }
+      }
+      for (x = 0; x < w; x++) {
+        acc = 0;
+        for (i = -radius; i <= radius; i++) acc += tmp[(((i % h) + h) % h) * w + x];
+        for (y = 0; y < h; y++) {
+          dst[y * w + x] = acc / win;
+          acc += tmp[(((y + radius + 1) % h + h) % h) * w + x] - tmp[(((y - radius) % h + h) % h) * w + x];
+        }
+      }
+    }
+    return dst;
+  }
+
+  function analyzeInput() {
+    var img = state.orig, w = img.width, h = img.height;
+    var edges = edgeMismatch(img, w, h);
+    var lum = luminanceMap(img, w, h);
+    var radius = Math.max(4, Math.round(Math.min(w, h) / 8));
+    var blur = wrapBlur(lum, w, h, radius);
+    var min = 255, max = 0, mean = 0, i, n = w * h;
+    for (i = 0; i < n; i++) {
+      var v = blur[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      mean += v;
+    }
+    mean /= n;
+    var drift = mean > 1 ? ((max - min) / mean) * 100 : 0;
+
+    state.analysis = { edges: edges, drift: drift, lumBlur: blur, lumMean: mean };
+
+    els.mH.textContent = edges.lr.toFixed(1) + "%";
+    els.mV.textContent = edges.tb.toFixed(1) + "%";
+    els.mL.textContent = drift.toFixed(0) + "%";
+
+    var recLight = drift > 18 ? Math.round(clamp((drift - 10) * 1.6, 20, 90) / 5) * 5 : 0;
+    els.light.value = recLight;
+    els.lightVal.textContent = recLight === 0 ? "off" : recLight + "%";
+  }
+
+  // ---------- lighting equalization (brightness rescale only) ----------
+
+  function equalizeLighting(imgData, strength) {
+    var w = imgData.width, h = imgData.height, d = imgData.data;
+    var a = state.analysis;
+    var blur = a.lumBlur, mean = a.lumMean;
+    var i, n = w * h;
+    for (i = 0; i < n; i++) {
+      var L = blur[i];
+      if (L < 1) L = 1;
+      var f = 1 + strength * (mean / L - 1);
+      f = clamp(f, 0.35, 2.8);
+      var j = i * 4;
+      d[j] = clamp(d[j] * f, 0, 255);
+      d[j + 1] = clamp(d[j + 1] * f, 0, 255);
+      d[j + 2] = clamp(d[j + 2] * f, 0, 255);
+    }
+  }
+
+  // ---------- tile search ----------
+
+  function axisSearch(data, w, h, axis, minFrac, ovFrac) {
+    var d = data.data;
+    var len = axis === "x" ? w : h;
+    var cross = axis === "x" ? h : w;
+    var Pmin = Math.max(16, Math.round(len * minFrac));
+    var Pmax = Math.floor(len / (1 + ovFrac));
+    if (Pmin > Pmax) Pmin = Pmax;
+    var best = null;
+
+    for (var P = Pmin; P <= Pmax; P++) {
+      var O = Math.max(4, Math.round(P * ovFrac));
+      if (P + O > len) continue;
+      var nPairs = len - P;
+      var diff = new Float64Array(nPairs);
+      for (var c = 0; c < nPairs; c++) {
+        var sum = 0;
+        for (var i = 0; i < cross; i++) {
+          var ia, ib;
+          if (axis === "x") { ia = (i * w + c) * 4; ib = (i * w + c + P) * 4; }
+          else { ia = (c * w + i) * 4; ib = ((c + P) * w + i) * 4; }
+          sum += Math.abs(d[ia] - d[ib]) + Math.abs(d[ia + 1] - d[ib + 1]) + Math.abs(d[ia + 2] - d[ib + 2]);
+        }
+        diff[c] = sum / (cross * 3 * 255) * 100;
+      }
+      var acc = 0, x0;
+      for (x0 = 0; x0 < O; x0++) acc += diff[x0];
+      var maxStart = nPairs - O;
+      for (x0 = 0; x0 <= maxStart; x0++) {
+        var score = acc / O;
+        var eff = score + 5 * (1 - P / len);
+        if (!best || eff < best.eff) best = { P: P, O: O, x0: x0, score: score, eff: eff };
+        if (x0 < maxStart) acc += diff[x0 + O] - diff[x0];
+      }
+    }
+    return best;
+  }
+
+  function refineAxis(data, w, h, axis, P0, x00, ovFrac, radius) {
+    var d = data.data;
+    var len = axis === "x" ? w : h;
+    var cross = axis === "x" ? h : w;
+    var step = Math.max(1, Math.floor(cross / 400));
+    var best = null;
+    for (var P = P0 - radius; P <= P0 + radius; P++) {
+      var O = Math.max(6, Math.round(P * ovFrac));
+      if (P < 16 || P + O > len) continue;
+      for (var x0 = Math.max(0, x00 - radius); x0 <= x00 + radius; x0++) {
+        if (x0 + P + O > len) continue;
+        var sum = 0, count = 0;
+        for (var x = 0; x < O; x += 2) {
+          var ca = x0 + x, cb = x0 + x + P;
+          for (var i = 0; i < cross; i += step) {
+            var ia, ib;
+            if (axis === "x") { ia = (i * w + ca) * 4; ib = (i * w + cb) * 4; }
+            else { ia = (ca * w + i) * 4; ib = (cb * w + i) * 4; }
+            sum += Math.abs(d[ia] - d[ib]) + Math.abs(d[ia + 1] - d[ib + 1]) + Math.abs(d[ia + 2] - d[ib + 2]);
+            count += 3;
+          }
+        }
+        var score = sum / (count * 255) * 100;
+        if (!best || score < best.score) best = { P: P, O: O, x0: x0, score: score };
+      }
+    }
+    return best;
+  }
+
+  // ---------- seam carving (minimum-error boundary cut) ----------
+
+  function cutPathVertical(D, O, H) {
+    var INF = 1e18;
+    var dp = new Float64Array(H * O);
+    var from = new Int16Array(H * O);
+    var x, y;
+    for (x = 0; x < O; x++) dp[x] = (x >= 1) ? D[x] : INF;
+    for (y = 1; y < H; y++) {
+      for (x = 0; x < O; x++) {
+        if (x < 1) { dp[y * O + x] = INF; continue; }
+        var b = dp[(y - 1) * O + x], f = 0;
+        if (x > 1 && dp[(y - 1) * O + x - 1] < b) { b = dp[(y - 1) * O + x - 1]; f = -1; }
+        if (x < O - 1 && dp[(y - 1) * O + x + 1] < b) { b = dp[(y - 1) * O + x + 1]; f = 1; }
+        dp[y * O + x] = D[y * O + x] + b;
+        from[y * O + x] = f;
+      }
+    }
+    var bx = 1;
+    for (x = 2; x < O; x++) if (dp[(H - 1) * O + x] < dp[(H - 1) * O + bx]) bx = x;
+    var path = new Int32Array(H);
+    for (y = H - 1; y >= 0; y--) {
+      path[y] = bx;
+      if (y > 0) bx += from[y * O + bx];
+    }
+    return path;
+  }
+
+  function cutPathHorizontal(D, Ov, W) {
+    var INF = 1e18;
+    var r = 1, bestC = Infinity;
+    for (var yy = 1; yy < Ov; yy++) {
+      var c = D[yy] + D[(W - 1) * Ov + yy];
+      if (c < bestC) { bestC = c; r = yy; }
+    }
+    var dp = new Float64Array(W * Ov);
+    var from = new Int16Array(W * Ov);
+    var x, y;
+    for (y = 0; y < Ov; y++) dp[y] = (y === r) ? D[y] : INF;
+    for (x = 1; x < W; x++) {
+      for (y = 0; y < Ov; y++) {
+        if (y < 1) { dp[x * Ov + y] = INF; continue; }
+        var b = dp[(x - 1) * Ov + y], f = 0;
+        if (y > 1 && dp[(x - 1) * Ov + y - 1] < b) { b = dp[(x - 1) * Ov + y - 1]; f = -1; }
+        if (y < Ov - 1 && dp[(x - 1) * Ov + y + 1] < b) { b = dp[(x - 1) * Ov + y + 1]; f = 1; }
+        dp[x * Ov + y] = (b >= INF ? INF : D[x * Ov + y] + b);
+        from[x * Ov + y] = f;
+      }
+    }
+    var path = new Int32Array(W);
+    var by = r;
+    for (x = W - 1; x >= 0; x--) {
+      path[x] = by;
+      if (x > 0) by += from[x * Ov + by];
+    }
+    return path;
+  }
+
+  function pxDiffSq(d, ia, ib) {
+    var dr = d[ia] - d[ib], dg = d[ia + 1] - d[ib + 1], db = d[ia + 2] - d[ib + 2];
+    return dr * dr + dg * dg + db * db;
+  }
+
+  function quiltHorizontal(crop, Wt, O) {
+    var W = crop.width, H = crop.height, s = crop.data;
+    var D = new Float64Array(H * O);
+    var x, y;
+    for (y = 0; y < H; y++)
+      for (x = 0; x < O; x++)
+        D[y * O + x] = pxDiffSq(s, (y * W + Wt + x) * 4, (y * W + x) * 4);
+    var path = cutPathVertical(D, O, H);
+
+    var out = new ImageData(Wt, H);
+    var o = out.data;
+    for (y = 0; y < H; y++) {
+      var p = path[y];
+      for (x = 0; x < Wt; x++) {
+        var si = (x < O && x < p) ? (y * W + Wt + x) * 4 : (y * W + x) * 4;
+        var di = (y * Wt + x) * 4;
+        o[di] = s[si]; o[di + 1] = s[si + 1]; o[di + 2] = s[si + 2]; o[di + 3] = s[si + 3];
+      }
+    }
+    return out;
+  }
+
+  function quiltVertical(img, Ht, Ov) {
+    var W = img.width, s = img.data;
+    var D = new Float64Array(W * Ov);
+    var x, y;
+    for (x = 0; x < W; x++)
+      for (y = 0; y < Ov; y++)
+        D[x * Ov + y] = pxDiffSq(s, ((Ht + y) * W + x) * 4, (y * W + x) * 4);
+    var path = cutPathHorizontal(D, Ov, W);
+
+    var out = new ImageData(W, Ht);
+    var o = out.data;
+    for (y = 0; y < Ht; y++) {
+      for (x = 0; x < W; x++) {
+        var sy = (y < Ov && y < path[x]) ? Ht + y : y;
+        var si = (sy * W + x) * 4;
+        var di = (y * W + x) * 4;
+        o[di] = s[si]; o[di + 1] = s[si + 1]; o[di + 2] = s[si + 2]; o[di + 3] = s[si + 3];
+      }
+    }
+    return out;
+  }
+
+  // ---------- main pipeline ----------
+
+  function scheduleProcess(delay) {
+    clearTimeout(state.processTimer);
+    setStatus("Searching…", true);
+    state.processTimer = setTimeout(process, delay === undefined ? 250 : delay);
+  }
+
+  function process() {
+    if (!state.orig) return;
+    var t0 = performance.now();
+    var w = state.orig.width, h = state.orig.height;
+    var minFrac = parseInt(els.minKeep.value, 10) / 100;
+    var ovFrac = parseInt(els.overlap.value, 10) / 100;
+    var lightStrength = parseInt(els.light.value, 10) / 100;
+
+    var working = new ImageData(new Uint8ClampedArray(state.orig.data), w, h);
+    if (lightStrength > 0) equalizeLighting(working, lightStrength);
+
+    var workCanvas = document.createElement("canvas");
+    workCanvas.width = w; workCanvas.height = h;
+    var workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
+    workCtx.putImageData(working, 0, 0);
+
+    var sScale = Math.min(1, SEARCH_DIM / Math.max(w, h));
+    var sw = Math.max(32, Math.round(w * sScale));
+    var sh = Math.max(32, Math.round(h * sScale));
+    var sc = document.createElement("canvas");
+    sc.width = sw; sc.height = sh;
+    var sctx = sc.getContext("2d", { willReadFrequently: true });
+    sctx.drawImage(workCanvas, 0, 0, sw, sh);
+    var small = sctx.getImageData(0, 0, sw, sh);
+
+    var bx = axisSearch(small, sw, sh, "x", minFrac, ovFrac);
+    var by = axisSearch(small, sw, sh, "y", minFrac, ovFrac);
+    if (!bx || !by) { setStatus("Image too small for this tile size — lower the minimum.", false); return; }
+
+    var fx = w / sw, fy = h / sh;
+    var hx = { P: Math.round(bx.P * fx), x0: Math.round(bx.x0 * fx) };
+    var hy = { P: Math.round(by.P * fy), x0: Math.round(by.x0 * fy) };
+    var rx = Math.min(12, Math.max(2, Math.ceil(fx) + 1));
+    var ry = Math.min(12, Math.max(2, Math.ceil(fy) + 1));
+    var rbx = refineAxis(working, w, h, "x", hx.P, hx.x0, ovFrac, rx) || { P: hx.P, O: Math.max(6, Math.round(hx.P * ovFrac)), x0: hx.x0 };
+    var rby = refineAxis(working, w, h, "y", hy.P, hy.x0, ovFrac, ry) || { P: hy.P, O: Math.max(6, Math.round(hy.P * ovFrac)), x0: hy.x0 };
+
+    var Wt = rbx.P, O = rbx.O, x0 = rbx.x0;
+    var Ht = rby.P, Ov = rby.O, y0 = rby.x0;
+
+    var crop = workCtx.getImageData(x0, y0, Wt + O, Ht + Ov);
+    var horiz = quiltHorizontal(crop, Wt, O);
+    var tile = quiltVertical(horiz, Ht, Ov);
+
+    var resultCanvas = document.createElement("canvas");
+    resultCanvas.width = Wt; resultCanvas.height = Ht;
+    resultCanvas.getContext("2d").putImageData(tile, 0, 0);
+    state.result = resultCanvas;
+    state.tile = { x0: x0, y0: y0, Wt: Wt, Ht: Ht, O: O, Ov: Ov };
+
+    var kept = (Wt * Ht) / (w * h) * 100;
+    els.mT.textContent = Wt + "×" + Ht + " · " + kept.toFixed(0) + "%";
+
+    var re = edgeMismatch(tile, Wt, Ht);
+    var residual = Math.max(re.lr, re.tb);
+    var baseline = textureNoise(tile, Wt, Ht);
+    els.mR.textContent = residual.toFixed(1) + "% / noise " + baseline.toFixed(1) + "%";
+
+    drawPreview();
+    setStatus("Done in " + Math.round(performance.now() - t0) + " ms", false);
+  }
+
+  function textureNoise(img, w, h) {
+    var d = img.data, sum = 0, n = 0;
+    var stepY = Math.max(1, Math.floor(h / 200)), stepX = Math.max(1, Math.floor(w / 200));
+    for (var y = 0; y < h - 1; y += stepY) {
+      for (var x = 0; x < w - 1; x += stepX) {
+        var i = (y * w + x) * 4, ir = i + 4, id = i + w * 4;
+        sum += Math.abs(d[i] - d[ir]) + Math.abs(d[i + 1] - d[ir + 1]) + Math.abs(d[i + 2] - d[ir + 2]);
+        sum += Math.abs(d[i] - d[id]) + Math.abs(d[i + 1] - d[id + 1]) + Math.abs(d[i + 2] - d[id + 2]);
+        n += 6;
+      }
+    }
+    return n ? (sum / (n * 255)) * 100 : 0;
+  }
+
+  // ---------- preview ----------
+
+  function drawPreview() {
+    var canvas = els.previewCanvas;
+    var stageW = Math.max(320, canvas.parentElement.clientWidth - 2);
+    var ctx;
+
+    if (state.view === "source") {
+      var src = state.origCanvas;
+      if (!src) return;
+      var f = Math.min(1.5, stageW / src.width);
+      canvas.width = Math.round(src.width * f);
+      canvas.height = Math.round(src.height * f);
+      ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+      if (state.tile) {
+        var t = state.tile;
+        var accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2e8f5d";
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(t.x0 * f, t.y0 * f, (t.Wt + t.O) * f, (t.Ht + t.Ov) * f);
+        ctx.drawImage(src, t.x0, t.y0, t.Wt + t.O, t.Ht + t.Ov,
+                      t.x0 * f, t.y0 * f, (t.Wt + t.O) * f, (t.Ht + t.Ov) * f);
+        ctx.strokeStyle = accent;
+        ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(t.x0 * f + 0.5, t.y0 * f + 0.5, (t.Wt + t.O) * f, (t.Ht + t.Ov) * f);
+        ctx.setLineDash([]);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(t.x0 * f + 1, t.y0 * f + 1, t.Wt * f, t.Ht * f);
+      }
+      return;
+    }
+
+    var source = state.result;
+    if (!source) return;
+    var tiles = state.view === "result1" ? 1 : (state.view === "result2" ? 2 : 3);
+    var tileW = Math.floor(stageW / tiles);
+    var tileH = Math.max(1, Math.round(tileW * source.height / source.width));
+    canvas.width = tileW * tiles;
+    canvas.height = tileH * tiles;
+    ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (var ty = 0; ty < tiles; ty++)
+      for (var tx = 0; tx < tiles; tx++)
+        ctx.drawImage(source, tx * tileW, ty * tileH, tileW, tileH);
+    if (els.gridToggle.checked && tiles > 1) {
+      ctx.strokeStyle = "rgba(255,80,80,0.75)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      for (var gx = 1; gx < tiles; gx++) {
+        ctx.beginPath(); ctx.moveTo(gx * tileW + 0.5, 0); ctx.lineTo(gx * tileW + 0.5, canvas.height); ctx.stroke();
+      }
+      for (var gy = 1; gy < tiles; gy++) {
+        ctx.beginPath(); ctx.moveTo(0, gy * tileH + 0.5); ctx.lineTo(canvas.width, gy * tileH + 0.5); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+  }
+
+  // ---------- events ----------
+
+  els.drop.addEventListener("click", function () { els.fileInput.click(); });
+  els.drop.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); els.fileInput.click(); }
+  });
+  els.fileInput.addEventListener("change", function () {
+    if (els.fileInput.files && els.fileInput.files[0]) loadFile(els.fileInput.files[0]);
+    els.fileInput.value = "";
+  });
+  ["dragover", "dragenter"].forEach(function (ev) {
+    els.drop.addEventListener(ev, function (e) { e.preventDefault(); els.drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    els.drop.addEventListener(ev, function (e) { e.preventDefault(); els.drop.classList.remove("over"); });
+  });
+  els.drop.addEventListener("drop", function (e) {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  });
+  document.addEventListener("paste", function (e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image/") === 0) { loadFile(items[i].getAsFile()); break; }
+    }
+  });
+
+  els.minKeep.addEventListener("input", function () {
+    els.minKeepVal.textContent = els.minKeep.value + "%";
+    scheduleProcess();
+  });
+  els.overlap.addEventListener("input", function () {
+    els.overlapVal.textContent = els.overlap.value + "%";
+    scheduleProcess();
+  });
+  els.light.addEventListener("input", function () {
+    els.lightVal.textContent = els.light.value === "0" ? "off" : els.light.value + "%";
+    scheduleProcess();
+  });
+
+  els.viewTabs.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-v]");
+    if (!btn) return;
+    state.view = btn.dataset.v;
+    Array.prototype.forEach.call(els.viewTabs.querySelectorAll("button"), function (b) {
+      b.classList.toggle("on", b === btn);
+    });
+    drawPreview();
+  });
+  els.gridToggle.addEventListener("change", drawPreview);
+  window.addEventListener("resize", function () { if (state.result) drawPreview(); });
+
+  els.downloadBtn.addEventListener("click", function () {
+    if (!state.result) return;
+    state.result.toBlob(function (blob) {
+      if (!blob) { setStatus("Couldn't encode the PNG.", false); return; }
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.download = state.fileName + "_seamless.png";
+      a.href = url;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 2000);
+      setStatus("Saved " + a.download + " — if nothing downloaded, right-click the button to open the PNG in a tab", false);
+    }, "image/png");
+  });
+
+  // Fallback if the page can't trigger downloads: open the PNG in a new tab to save manually.
+  els.downloadBtn.addEventListener("contextmenu", function (e) {
+    if (!state.result) return;
+    e.preventDefault();
+    state.result.toBlob(function (blob) {
+      if (blob) window.open(URL.createObjectURL(blob), "_blank");
+    }, "image/png");
+  });
+
+  els.resetBtn.addEventListener("click", function () { els.fileInput.click(); });
+})();
+</script>
